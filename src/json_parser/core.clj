@@ -6,103 +6,95 @@
      '[indent.indent :only (indent-dispatch)])
 
 (defn remove-from-start
-  [str substr]
-  (subs str (count substr)))
+  [string substring]
+  (subs string (count substring)))
 
 (defn parse-space
-  [str]
-  (let [space (re-find #"^\s+" str)]
+  [string]
+  (let [space (re-find #"^\s+" string)]
     (if space
-      [space (remove-from-start str space)]
-      [nil str])))
+      [space (remove-from-start string space)]
+      [nil string])))
 
 (defn parse-number
-  [str]
-  (let [str (second (parse-space str))
-        numstr (re-find #"^\-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?" str)]
+  [string]
+  (let [string (second (parse-space string))
+        numstr (re-find #"^\-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?" string)]
     (when numstr
-      [(read-string numstr) (remove-from-start str numstr)])))
+      [(read-string numstr) (remove-from-start string numstr)])))
 
 (defn parse-char
-  [str char]
-  (let [str (second (parse-space str))
-        first-char (first str)
+  [string char]
+  (let [string (second (parse-space string))
+        first-char (first string)
         parseable? (= char first-char)]
     (when parseable?
-      [char (subs str 1)])))
+      [char (subs string 1)])))
 
 (defn parse-word
-  [str word parsed-object]
-  (let [str (second (parse-space str))
-        token (re-find (re-pattern (clojure.core/str "^" word  "($|[,\\s\\]\\}])")) str)]
+  [string word parsed-object]
+  (let [string (second (parse-space string))
+        token (re-find (re-pattern (str "^" word  "($|[,\\s\\]\\}])")) string)]
     (when token
-      [parsed-object (remove-from-start str word)])))
-
-(defn closing-quotes-index
-  [str]
-  (loop [index 1]
-    (when (< index (count str))
-      (let [temp (index-of str \" index)]
-        (when temp
-          (if (= (get str (dec temp)) \\)
-            (recur (inc temp))
-            temp))))))
-
+      [parsed-object (remove-from-start string word)])))
 
 (defn parse-string
-  [str]
-  (let [str (second (parse-space str))
-        string (parse-char str \")]
-    (when string
-      (let [end-index (closing-quotes-index str)]
-        (when end-index
-          [(subs str 1 end-index) (subs str (inc end-index))])))))
+  [string]
+  (let [string (second (parse-space string))
+        parsed-string (re-find #"^\".*?(?<!\\)\"" string)]
+    (when parsed-string
+      [(subs parsed-string 1 (dec (count parsed-string))) (remove-from-start string parsed-string)])))
 
 (defn parse-bool
-  [str]
-  (or (parse-word str "true" true) (parse-word str "false" false)))
+  [string]
+  (or (parse-word string "true" true) (parse-word string "false" false)))
 
 (defn parse-null
-  [str]
-  (parse-word str "null" nil))
+  [string]
+  (parse-word string "null" nil))
 
 (def parse-key parse-string)
 
+(defn parse-key-and-value
+  [string]
+  (let [key (parse-key string)]
+    (when key
+      (let [colon (parse-char (second key) \:)]
+        (when colon
+          (declare parse-value)
+          (let [value (parse-value (second colon))]
+            (when value
+              [{(first key) (first value)} (second value)])))))))
+
 (defn parse-object
   "Returns a hash-map equivalent to JSON-STR if JSON-STR is properly formed, NIL otherwise."
-  [str]
-  (let [object (parse-char str \{)]
+  [string]
+  (let [object (parse-char string \{)]
     (when object
       (loop [json-map {}
-             str (second object)
-             object-end (parse-char str \})]
+             string (second object)
+             object-end (parse-char string \})]
         (if object-end
           [json-map (second object-end)]
-          (let [key (parse-key str)]
-            (when key
-              (let [colon (parse-char (second key) \:)]
-                (when colon
-                  (declare parse-value)
-                  (let [value (parse-value (second colon))]
-                    ;(println (clojure.core/str (first key) " : " (first value)))
-                    (when value
-                      (let [comma (parse-char (second value) \,)
-                            end (parse-char (second value) \})]
-                        (when (or comma end)
-                          (if comma
-                            (recur (into json-map {(first key) (first value)}) (second comma) end)
-                            (recur (into json-map {(first key) (first value)}) (second end) end)))))))))))))))
+          (let [key-and-value (parse-key-and-value string)]
+            (when key-and-value
+              (let [comma (parse-char (second key-and-value) \,)
+                       end (parse-char (second key-and-value) \})]
+                (when (or comma end)
+                  (if comma
+                    (recur (into json-map (first key-and-value)) (second comma) end)
+                    (recur (into json-map (first key-and-value)) (second end) end)))))))))))
 
 (defn parse-array
-  [str]
-  (let [array (parse-char str \[)]
+  [string]
+  (let [array (parse-char string \[)]
     (when array
       (loop [vec []
-             str (second array)
-             array-end (parse-char str \])]
+             string (second array)
+             array-end (parse-char string \])]
         (if array-end
           [vec (second array-end)]
-          (let [value (parse-value str)]
+          (let [value (parse-value string)]
             (when value
               (let [comma (parse-char (second value) \,)
                     end (parse-char (second value) \])]
@@ -112,11 +104,8 @@
                     (recur (into vec [(first value)]) (second end) end))))))))))) 
 
 (defn parse-value
-  [str]
-  (def value (or (parse-null str) (parse-bool str) (parse-string str) (parse-number str) (parse-object str) (parse-array str)))
-  ;(println (clojure.core/str "value : " (first value)))
-  value)
-
+  [string]
+  (or (parse-null string) (parse-bool string) (parse-string string) (parse-number string) (parse-object string) (parse-array string)))
 
 (defn -main
   "Pretty prints result map if input string is ok, prints error message otherwise."

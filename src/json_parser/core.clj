@@ -1,9 +1,8 @@
 (ns json-parser.core
+  (:require [clojure.string :refer :all :exclude [replace reverse]]
+            [clojure.pprint :refer :all]
+            [indent.indent :refer [indent-dispatch]])
   (:gen-class))
-
-(use '[clojure.string :exclude (replace reverse)]
-     'clojure.pprint
-     '[indent.indent :only (indent-dispatch)])
 
 (defn remove-from-start
   [string substring]

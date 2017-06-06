@@ -1,2 +1,2 @@
 # json_parser
-A json parser for clojure
+A json parser implemented in clojure.
